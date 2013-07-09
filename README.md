@@ -32,7 +32,7 @@ Return the next node ofter Node ID 100 that is published and an `article` or
 
     pn_nid_query(100, 'next', array('types' => array('article', 'page')));
     // Returns `101` If nid 101 exists, is published and is either a page or
-    article.
+    // article.
 
 Return the next node ofter Node ID 100 that is an `article` or `page` content
 type regardless of whether or not it is published:

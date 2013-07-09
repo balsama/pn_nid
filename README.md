@@ -19,16 +19,20 @@ The following function is available after enabling the module:
 
 Return the next published node after Node ID 100 of any content type:
 
-    pn_nid_query(100); // Returns `101` If nid 101 exists and is published.
+    pn_nid_query(100);
+    // Returns `101` If nid 101 exists and is published.
 
 Return the previous published node before Node 100 of any content type:
 
-    pn_nid_query(100, 'prev'); // Returns `99` If nid 99 exists and is published.
+    pn_nid_query(100, 'prev');
+    // Returns `99` If nid 99 exists and is published.
 
 Return the next node ofter Node ID 100 that is published and an `article` or
 `page` content type:
 
-    pn_nid_query(100, 'next', array('types' => array('article', 'page'))); // Returns `101` If nid 101 exists, is published and is either a page or article.
+    pn_nid_query(100, 'next', array('types' => array('article', 'page')));
+    // Returns `101` If nid 101 exists, is published and is either a page or
+    article.
 
 Return the next node ofter Node ID 100 that is an `article` or `page` content
 type regardless of whether or not it is published:

@@ -1,0 +1,61 @@
+<?php
+/**
+ * Implements hook_schema()
+ */
+function pn_nid_schema() {
+  $schema['pn_nid'] = array(
+    'description' => 'Prev/Next Node ID Cache',
+    'fields' => array(
+      'identifier' => array(
+        'Unique identifier comprised of nid and concatanated options.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'nid' => array(
+        'description' => 'The primary identifier for a node.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'type' => array(
+        'description' => 'Next or previous.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'next',
+      ),
+      'pn_nid' => array(
+        'description' => 'The Node ID of the previous or next node in this context.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'types' => array(
+        'description' => 'Array of valid node types to return for this context.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+      ),
+      'terms' => array(
+        'description' => 'Array of valid Taxonomy Term IDs to return for this context.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+      ),
+      'unpublished' => array(
+        'description' => 'Whether or not to return unpublished nodes.',
+        'type' => 'int',
+        'length' => 1,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('identifier'),
+  );
+  return $schema;
+}
+
+

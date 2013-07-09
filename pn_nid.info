@@ -1,0 +1,4 @@
+name = Previous/Next Node ID
+description = Provide a high performance API for previous/next Node IDs based on node type or taxonomy.
+core = 7.x
+

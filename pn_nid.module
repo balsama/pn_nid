@@ -1,0 +1,172 @@
+<?php
+/**
+ * Returns the next or previous nid according to the options set.
+ *
+ * @param int nid
+ *   The Node ID of the current node.
+ *
+ * @param string op
+ *   Either 'prev' or 'next' depending on whether the next or previous node in
+ *   the sequence should be returned.
+ *
+ * @param array options
+ *   An associative array containing the following (all are optional):
+ *     - 'types':       Array of content types that the result should be
+ *                      restricted to. Default: FALSE. If set to FALSE or
+ *                      ommitted, all content types are valid.
+ *     - 'terms':       Array of Taxonomy Term IDs that the result should be
+ *                      restricted to. Default: FALSE. If set to FALSE or
+ *                      ommitted, all Taxonomy Terms are valid (including nodes
+ *                      not tagged with any terms).
+ *     - 'unpublished': Bool. Whether or not to include unpublished nodes in
+ *                      the result. Defaults to FALSE.
+ *
+ * @return int
+ *   The Node ID of the previous or next node in the sequence as defined by the
+ *   options param.
+ */
+function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'terms' => FALSE, 'unpublished' => FALSE)) {
+  // @todo The terms associative array doesn't do anything currently. If it's
+  // present, we need to join the taxonomy_index table and refine our query as
+  // appropriate.
+
+  // For simplicity, all of the options are contained in one param as an
+  // associative array. This allows the user to pick and choose which options
+  // they want to specify without worrying about setting defaults. As such, the
+  // defaults are erased if the user chooses to define at least one but not all
+  // of the options. So we reset any default values that have been lost here.
+  $options['types'] = (!isset($options['types'])) ? FALSE : $options['types'];
+  $options['terms'] = (!isset($options['terms'])) ? FALSE : $options['terms'];
+  $options['unpublished'] = (!isset($options['unpublished'])) ? FALSE : $options['unpublished'];
+
+  // `types` and `terms` are provided as arrays if they are set. We don't want
+  // to store, for example, `('page', 'article')` as a different entry from
+  // `('article', 'page')`, so we sort them if they are arrays.
+  if (is_array($options['types'])) {
+    sort($options['types']);
+  }
+  if (is_array($options['terms'])) {
+    sort($options['terms']);
+  }
+
+  // Format portions of the options array to be used when generating the hash
+  // identifier and inserting values into the db. We also pass these formatted
+  // options on to the generate function if necesarry so we don't have to
+  // reformat there.
+  $unpublished = ($options['unpublished'] == TRUE) ? 1 : 0;
+  $imp_types = (is_array($options['types'])) ? implode(', ', $options['types']) : $options['types'];
+  $imp_terms = (is_array($options['terms'])) ? implode(', ', $options['terms']) : $options['terms'];
+
+  $hash = pn_nid_generate_id($nid, $op, $imp_types, $imp_terms, $unpublished);
+
+  $pn_nid = db_query("SELECT pn_nid FROM {pn_nid} WHERE identifier = :hash", array(':hash' => $hash))->fetchField();
+
+  if (!is_numeric($pn_nid)) {
+    // If we didn't find a result in the db, we pass the information on to the
+    // generate function which will generate, store and return the pn_nid.
+    $processed_options = array(
+      'options' => $options,
+      'imp_types' => $imp_types,
+      'imp_terms' => $imp_terms,
+      'unpublished' => $unpublished,
+    );
+    $pn_nid = pn_nid_generate($nid, $op, $processed_options);
+  }
+  return $pn_nid;
+}
+dpm(pn_nid_query(3, 'next', array('unpublished' => TRUE)));
+
+/**
+ * Generates and returns the Node ID of the previous or next node as defined
+ * in the $options array and stores the result in a DB Table.
+ */
+function pn_nid_generate($nid, $op, $processed_options) {
+  $where_parts = array();
+  if ($op == 'next') {
+    $where_parts[] = '{node.nid} > :nid';
+    $order = 'ASC';
+  }
+  else {
+    $where_parts[] = '{node.nid} < :nid';
+    $order = 'DESC';
+  }
+
+  if ($processed_options['options']['types']) {
+    // Filter the query by node type.
+    $node_type_filter = array();
+    foreach ($processed_options['options']['types'] as $type) {
+      $node_type_filter[] = '{node.type} = \'' . $type . '\'';
+    }
+    $where_parts[] = '(' . implode(' OR ', $node_type_filter) . ')';
+  }
+
+  $where_parts[] = '{node.status} = 1';
+  if ($processed_options['unpublished']) {
+    // By default, we only return published nodes. But if 'unpublished' is
+    // specifically set to true, we don't filter based on published status.
+    array_pop($where_parts);
+  }
+
+  $where = implode(' AND ', $where_parts);
+  $pn_nid = db_query("SELECT {node.nid} FROM {node} WHERE " . $where . " ORDER BY {node.nid} " . $order, array(':nid' => $nid,))->fetchField();
+  if (!is_numeric($pn_nid)) {
+    if (pn_nid_is_valid_nid($nid)) {
+      $pn_nid = pn_nid_get_first_last($nid, $where_parts, $order);
+    }
+    else {
+      //@todo WATCHDOGGGG!!
+      return FALSE;
+    }
+  }
+
+  $identifier = pn_nid_generate_id($nid, $op, $processed_options['imp_types'], $processed_options['imp_terms'], $processed_options['unpublished']);
+  db_merge('pn_nid')
+    ->key(array('identifier' => $identifier))
+    ->fields(array(
+      'identifier' => $identifier,
+      'nid' => $nid,
+      'type' => $op,
+      'pn_nid' => $pn_nid,
+      'types' => $processed_options['imp_types'],
+      'terms' => $processed_options['imp_terms'],
+      'unpublished' => $processed_options['unpublished'],
+    ))
+    ->execute();
+  return $pn_nid;
+}
+
+/**
+ * Generates and returns the md5 hash identifier for a given node and options.
+ */
+function pn_nid_generate_id($nid, $op, $imp_types, $imp_terms, $unpublished) {
+  $concatanated = $nid . $imp_types . $imp_terms . $op . $unpublished;
+  $identifier =  md5($concatanated);
+  return $identifier;
+}
+
+/**
+ * Returns the first or last Node ID fitting the parameters defined in
+ * `$where_parts`. We use this if the pn_nid_generate() function doesn't
+ * initially find the next or previous node as this can be an indication that
+ * the current node is the first or last in the sequence and we need to wrap
+ * around.
+ */
+function pn_nid_get_first_last($nid, $where_parts, $order) {
+  array_shift($where_parts);
+  $where = implode(' AND ', $where_parts);
+  return db_query("SELECT nid FROM {node} WHERE " . $where . " ORDER BY nid " . $order)->fetchField();
+}
+
+/**
+ * Checks to see if a given integer is a valid Drupal Node ID.
+ *
+ * @return bool
+ */
+function pn_nid_is_valid_nid($nid) {
+  $valid_node = db_query("SELECT nid FROM {node} WHERE nid = :nid", array(':nid' => $nid,))->fetchField();
+  if (is_numeric($valid_node)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+

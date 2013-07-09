@@ -42,15 +42,13 @@ type regardless of whether or not it is published:
 DATABASE STORAGE
 ----------------
 
-By default, the Previous/Next values in the database are cleared on cron. You
-can turn this setting off by visiting the admin page. Values are generated and
-stored the first time they are requested after the table is cleared.
+By default, the Previous/Next cache is cleared each time a node is created/
+saved/deleted. This is appropriate for most sites because doing so can affect
+the next or previous node in a given sequence.
 
-You can also manually empty the Previous/Next values on the admin page.
+You can also choose to have the cache emptied on cron or turn off automatic
+cache clearing entirely.
 
-If you would like more granular control over when the values are cleared, use
-a module like [Elysia Cron](https://drupal.org/project/elysia_cron) to set
-fine-grained control.
 
 SIMILAR MODULES
 ---------------

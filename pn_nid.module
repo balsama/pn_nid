@@ -2,14 +2,14 @@
 /**
  * Returns the next or previous nid according to the options set.
  *
- * @param int nid
+ * @param int $nid
  *   The Node ID of the current node.
  *
- * @param string op
+ * @param string $op
  *   Either 'prev' or 'next' depending on whether the next or previous node in
  *   the sequence should be returned.
  *
- * @param array options
+ * @param array $options
  *   An associative array containing the following (all are optional):
  *     - 'types':       Array of content types that the result should be
  *                      restricted to. Default: FALSE. If set to FALSE or
@@ -57,11 +57,11 @@ function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'te
   $imp_types = (is_array($options['types'])) ? implode(', ', $options['types']) : $options['types'];
   $imp_terms = (is_array($options['terms'])) ? implode(', ', $options['terms']) : $options['terms'];
 
-  $hash = pn_nid_generate_id($nid, $op, $imp_types, $imp_terms, $unpublished);
+  $hash_id = pn_nid_generate_id($nid, $op, $imp_types, $imp_terms, $unpublished);
 
-  $pn_nid = db_query("SELECT pn_nid FROM {pn_nid} WHERE identifier = :hash", array(':hash' => $hash))->fetchField();
+  $pn_nid = cache_get($hash_id, 'cache_pn_nid');
 
-  if (!is_numeric($pn_nid)) {
+  if (!isset($pn_nid->data)) {
     // If we didn't find a result in the db, we pass the information on to the
     // generate function which will generate, store and return the pn_nid.
     $processed_options = array(
@@ -72,15 +72,16 @@ function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'te
     );
     $pn_nid = pn_nid_generate($nid, $op, $processed_options);
   }
+  else ($pn_nid = $pn_nid->data);
   return $pn_nid;
 }
-dpm(pn_nid_query(3, 'next', array('unpublished' => TRUE)));
 
 /**
  * Generates and returns the Node ID of the previous or next node as defined
  * in the $options array and stores the result in a DB Table.
  */
 function pn_nid_generate($nid, $op, $processed_options) {
+  drupal_set_message('you\'re aware that the generate function ran, right?');
   $where_parts = array();
   if ($op == 'next') {
     $where_parts[] = '{node.nid} > :nid';
@@ -119,8 +120,10 @@ function pn_nid_generate($nid, $op, $processed_options) {
     }
   }
 
-  $identifier = pn_nid_generate_id($nid, $op, $processed_options['imp_types'], $processed_options['imp_terms'], $processed_options['unpublished']);
-  db_merge('pn_nid')
+  $hash_id = pn_nid_generate_id($nid, $op, $processed_options['imp_types'], $processed_options['imp_terms'], $processed_options['unpublished']);
+  cache_set($hash_id, $pn_nid, 'cache_pn_nid', CACHE_PERMANENT);
+  /*
+   db_merge('pn_nid')
     ->key(array('identifier' => $identifier))
     ->fields(array(
       'identifier' => $identifier,
@@ -132,6 +135,7 @@ function pn_nid_generate($nid, $op, $processed_options) {
       'unpublished' => $processed_options['unpublished'],
     ))
     ->execute();
+   */
   return $pn_nid;
 }
 
@@ -170,3 +174,71 @@ function pn_nid_is_valid_nid($nid) {
   return FALSE;
 }
 
+/**
+ * Implements hook_menu()
+ */
+function pn_nid_menu() {
+  $items = array();
+
+  $items['admin/config/system/pn_nid'] = array(
+    'title' => t('Previous/Next Node ID'),
+    'description' => t('Configure Previous/Next Node ID settings.'),
+    'page callback' => 'pn_nid_admin',
+    'access arguments' => array('administer previous next nid'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'pn_nid.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission()
+ */
+function pn_nid_permission() {
+  return array(
+    'administer previous next nid' => array(
+      'title' => 'Administer Previous/Next NID',
+      'description' => 'Access the Previous/Next NID administration page.',
+    ),
+  );
+}
+
+/**
+ * Implements hook_cron()
+ */
+function pn_nid_cron() {
+  if (variable_get('pn_nid_cache_clear', 2) == 1) {
+    pn_nid_clear();
+  }
+}
+
+/**
+ * Clears the pn_nid Cache table
+ */
+function pn_nid_clear() {
+  $result = db_truncate('cache_pn_nid')->execute();
+  drupal_set_message('Previous/Next Node ID Cache has been emptied.');
+}
+
+/**
+ * Implements hook_node_presave().
+ *
+ * If the user has selected to rebuild the cache on all node updates, we run
+ * `pn_nid_clear()` on each node save/update.
+ */
+function pn_nid_node_presave($node) {
+  if (variable_get('pn_nid_cache_clear', 2) == 2) {
+    pn_nid_clear();
+  }
+}
+/**
+ * Implements hook_node_delete().
+ *
+ * See hook_node_presave() function above.
+ */
+function pn_nid_node_delete($node) {
+  if (variable_get('pn_nid_cache_clear', 2) == 2) {
+    pn_nid_clear();
+  }
+}

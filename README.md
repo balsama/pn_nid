@@ -67,3 +67,9 @@ functionality, but differs from this module in the following significant ways:
 
 3. This module allows you to limit Previous/Next results by Taxonomy.
 
+TODO
+----
+
+Currently, passing an array of Term IDs in the $options['terms'] doesn't do
+anything! I need to add a join to the query if that array is present.
+

@@ -26,10 +26,6 @@
  *   options param.
  */
 function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'terms' => FALSE, 'unpublished' => FALSE)) {
-  // @todo The terms associative array doesn't do anything currently. If it's
-  // present, we need to join the taxonomy_index table and refine our query as
-  // appropriate.
-
   // For simplicity, all of the options are contained in one param as an
   // associative array. This allows the user to pick and choose which options
   // they want to specify without worrying about setting defaults. As such, the
@@ -61,7 +57,8 @@ function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'te
 
   $pn_nid = cache_get($hash_id, 'cache_pn_nid');
 
-  if (!isset($pn_nid->data)) {
+  //if (!isset($pn_nid->data)) {
+  if (1==1) {
     // If we didn't find a result in the db, we pass the information on to the
     // generate function which will generate, store and return the pn_nid.
     $processed_options = array(
@@ -75,13 +72,11 @@ function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'te
   else ($pn_nid = $pn_nid->data);
   return $pn_nid;
 }
-
 /**
  * Generates and returns the Node ID of the previous or next node as defined
  * in the $options array and stores the result in a DB Table.
  */
 function pn_nid_generate($nid, $op, $processed_options) {
-  drupal_set_message('you\'re aware that the generate function ran, right?');
   $where_parts = array();
   if ($op == 'next') {
     $where_parts[] = '{node.nid} > :nid';
@@ -101,6 +96,17 @@ function pn_nid_generate($nid, $op, $processed_options) {
     $where_parts[] = '(' . implode(' OR ', $node_type_filter) . ')';
   }
 
+  $join = '';
+  if ($processed_options['options']['terms']){
+    // Join taxonomy_index table and filter by term
+    $term_filter = array();
+    foreach ($processed_options['options']['terms'] as $term) {
+      $term_filter[] = '{taxonomy_index.tid} = \'' . $term . '\'';
+    }
+    $where_parts[] = '(' . implode(' OR ', $term_filter) . ')';
+    $join = 'LEFT JOIN {taxonomy_index} ON {node.nid}={taxonomy_index.nid} ';
+  }
+
   $where_parts[] = '{node.status} = 1';
   if ($processed_options['unpublished']) {
     // By default, we only return published nodes. But if 'unpublished' is
@@ -108,34 +114,28 @@ function pn_nid_generate($nid, $op, $processed_options) {
     array_pop($where_parts);
   }
 
-  $where = implode(' AND ', $where_parts);
-  $pn_nid = db_query("SELECT {node.nid} FROM {node} WHERE " . $where . " ORDER BY {node.nid} " . $order, array(':nid' => $nid,))->fetchField();
+  $where = $join . 'WHERE ' . implode(' AND ', $where_parts);
+  $pn_nid = db_query("SELECT {node.nid} FROM {node} " . $where . " ORDER BY {node.nid} " . $order, array(':nid' => $nid,))->fetchField();
   if (!is_numeric($pn_nid)) {
     if (pn_nid_is_valid_nid($nid)) {
-      $pn_nid = pn_nid_get_first_last($nid, $where_parts, $order);
+      // If we didn't find the next or previous nid and we're sure it's a
+      // valid node id to start with, we must be at the beginning or the end of
+      // the sequence. pn_nid_get_first_last() returns the wrapped around node
+      // id.
+      //
+      // @todo, we could make this an additional param option (e.g.
+      //        'wrap' => TRUE
+      $pn_nid = pn_nid_get_first_last($nid, $join, $where_parts, $order);
     }
     else {
-      //@todo WATCHDOGGGG!!
+      watchdog('pn_nid', 'Invalid Node ID: @nid provided in call to pn_nid_query()', array('@nid' => $nid), WATCHDOG_ERROR);
       return FALSE;
     }
   }
 
   $hash_id = pn_nid_generate_id($nid, $op, $processed_options['imp_types'], $processed_options['imp_terms'], $processed_options['unpublished']);
   cache_set($hash_id, $pn_nid, 'cache_pn_nid', CACHE_PERMANENT);
-  /*
-   db_merge('pn_nid')
-    ->key(array('identifier' => $identifier))
-    ->fields(array(
-      'identifier' => $identifier,
-      'nid' => $nid,
-      'type' => $op,
-      'pn_nid' => $pn_nid,
-      'types' => $processed_options['imp_types'],
-      'terms' => $processed_options['imp_terms'],
-      'unpublished' => $processed_options['unpublished'],
-    ))
-    ->execute();
-   */
+
   return $pn_nid;
 }
 
@@ -155,10 +155,10 @@ function pn_nid_generate_id($nid, $op, $imp_types, $imp_terms, $unpublished) {
  * the current node is the first or last in the sequence and we need to wrap
  * around.
  */
-function pn_nid_get_first_last($nid, $where_parts, $order) {
+function pn_nid_get_first_last($nid, $join, $where_parts, $order) {
   array_shift($where_parts);
-  $where = implode(' AND ', $where_parts);
-  return db_query("SELECT nid FROM {node} WHERE " . $where . " ORDER BY nid " . $order)->fetchField();
+  $where = $join . 'WHERE ' . implode(' AND ', $where_parts);
+  return db_query("SELECT {node.nid} FROM {node} " . $where . " ORDER BY {node.nid} " . $order)->fetchField();
 }
 
 /**

@@ -1,4 +1,9 @@
 <?php
+define('SORT_ALPHA', '{node.title}');
+define('SORT_CREATED', '{node.created}');
+define('SORT_CHANGED', '{node.changed}');
+define('SORT_NID', '{node.nid}');
+
 /**
  * Returns the next or previous nid according to the options set.
  *
@@ -8,6 +13,13 @@
  * @param string $op
  *   Either 'prev' or 'next' depending on whether the next or previous node in
  *   the sequence should be returned.
+ *
+ * @param constant $sort
+ *   One of the following named constants:
+ *     - SORT_ALPHA
+ *     - SORT_CREATED
+ *     - SORT_CHANGED
+ *     - SORT_NID
  *
  * @param array $options
  *   An associative array containing the following (all are optional):
@@ -25,7 +37,7 @@
  *   The Node ID of the previous or next node in the sequence as defined by the
  *   options param.
  */
-function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'terms' => FALSE, 'unpublished' => FALSE)) {
+function pn_nid($nid, $op = 'next', $sort = SORT_NID, $options = array('types' => FALSE, 'terms' => FALSE, 'unpublished' => FALSE)) {
   // For simplicity, all of the options are contained in one param as an
   // associative array. This allows the user to pick and choose which options
   // they want to specify without worrying about setting defaults. As such, the
@@ -66,26 +78,31 @@ function pn_nid_query($nid, $op = 'next', $options = array('types' => FALSE, 'te
       'imp_types' => $imp_types,
       'imp_terms' => $imp_terms,
       'unpublished' => $unpublished,
+      'sort' => $sort,
     );
     $pn_nid = pn_nid_generate($nid, $op, $processed_options);
   }
   else ($pn_nid = $pn_nid->data);
   return $pn_nid;
 }
+
 /**
  * Generates and returns the Node ID of the previous or next node as defined
  * in the $options array and stores the result in a DB Table.
  */
 function pn_nid_generate($nid, $op, $processed_options) {
   $where_parts = array();
+
   if ($op == 'next') {
-    $where_parts[] = '{node.nid} > :nid';
+    $where_parts[] = $processed_options['sort'] . ' > :sorter';
     $order = 'ASC';
   }
   else {
-    $where_parts[] = '{node.nid} < :nid';
+    $where_parts[] = $processed_options['sort'] . ' < :sorter';
     $order = 'DESC';
   }
+
+  $where_parts[] = 1;
 
   if ($processed_options['options']['types']) {
     // Filter the query by node type.
@@ -115,20 +132,17 @@ function pn_nid_generate($nid, $op, $processed_options) {
   }
 
   $where = $join . 'WHERE ' . implode(' AND ', $where_parts);
-  $pn_nid = db_query("SELECT {node.nid} FROM {node} " . $where . " ORDER BY {node.nid} " . $order, array(':nid' => $nid,))->fetchField();
+  $pn_nid = db_query("SELECT {node.nid} FROM {node} " . $where . " ORDER BY " . $processed_options['sort'] . " " . $order, array(':sorter' => pn_nid_sorter($nid, $processed_options['sort']),))->fetchField();
   if (!is_numeric($pn_nid)) {
     if (pn_nid_is_valid_nid($nid)) {
       // If we didn't find the next or previous nid and we're sure it's a
       // valid node id to start with, we must be at the beginning or the end of
       // the sequence. pn_nid_get_first_last() returns the wrapped around node
       // id.
-      //
-      // @todo, we could make this an additional param option (e.g.
-      //        'wrap' => TRUE
-      $pn_nid = pn_nid_get_first_last($nid, $join, $where_parts, $order);
+      $pn_nid = pn_nid_get_first_last($nid, $join, $where_parts, $order, $processed_options['sort']);
     }
     else {
-      watchdog('pn_nid', 'Invalid Node ID: @nid provided in call to pn_nid_query()', array('@nid' => $nid), WATCHDOG_ERROR);
+      watchdog('pn_nid', 'Invalid Node ID: @nid provided in call to pn_nid()', array('@nid' => $nid), WATCHDOG_ERROR);
       return FALSE;
     }
   }
@@ -138,6 +152,7 @@ function pn_nid_generate($nid, $op, $processed_options) {
 
   return $pn_nid;
 }
+dpm(pn_nid(1, 'next', SORT_CHANGED, array('unpublished' => TRUE)));
 
 /**
  * Generates and returns the md5 hash identifier for a given node and options.
@@ -155,10 +170,10 @@ function pn_nid_generate_id($nid, $op, $imp_types, $imp_terms, $unpublished) {
  * the current node is the first or last in the sequence and we need to wrap
  * around.
  */
-function pn_nid_get_first_last($nid, $join, $where_parts, $order) {
+function pn_nid_get_first_last($nid, $join, $where_parts, $order, $sort) {
   array_shift($where_parts);
   $where = $join . 'WHERE ' . implode(' AND ', $where_parts);
-  return db_query("SELECT {node.nid} FROM {node} " . $where . " ORDER BY {node.nid} " . $order)->fetchField();
+  return db_query("SELECT {node.nid} FROM {node} " . $where . " ORDER BY " . $sort . " " . $order)->fetchField();
 }
 
 /**
@@ -172,6 +187,28 @@ function pn_nid_is_valid_nid($nid) {
     return TRUE;
   }
   return FALSE;
+}
+
+/**
+ * Helper function used to return the correct piece of information about the
+ * node on which the sort will be performed.
+ */
+function pn_nid_sorter($nid, $sort) {
+  switch ($sort) {
+    case '{node.title}' :
+      $sorter = db_query("SELECT title FROM {node} WHERE nid = :nid", array(':nid' => $nid))->fetchField();
+      break;
+    case '{node.created}' :
+      $sorter = db_query("SELECT created FROM {node} WHERE nid = :nid", array(':nid' => $nid))->fetchField();
+      break;
+    case '{node.changed}' :
+      $sorter = db_query("SELECT changed FROM {node} WHERE nid = :nid", array(':nid' => $nid))->fetchField();
+      break;
+    case '{node.nid}' :
+      $sorter = $nid;
+      break;
+  }
+  return $sorter;
 }
 
 /**

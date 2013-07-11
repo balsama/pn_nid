@@ -47,7 +47,8 @@ Return the next node after Node 100 sorted alphabetically.
 SORTING
 -------
 
-The third parameter accepts one the following named constants:
+The third parameter controls how the sequence is sorted and accepts one of the
+following named constants:
 
 * **SORT_NID** (default)
   > Sorts the results numerically based on Node ID

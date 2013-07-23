@@ -1,0 +1,5 @@
+name = Previous/Next Field
+description = An implementation of a field to show the Field API
+package = Other
+core = 7.x
+dependencies[] = pn_nid

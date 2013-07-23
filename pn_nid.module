@@ -152,7 +152,6 @@ function pn_nid_generate($nid, $op, $processed_options) {
 
   return $pn_nid;
 }
-dpm(pn_nid(1, 'next', SORT_CHANGED, array('unpublished' => TRUE)));
 
 /**
  * Generates and returns the md5 hash identifier for a given node and options.

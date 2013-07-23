@@ -1,0 +1,381 @@
+<?php
+/**
+ * @file
+ * An example field using the Field Types API.
+ */
+
+/**
+ * @defgroup pnfield Example: Field Types API
+ * @ingroup examples
+ * @{
+ * Examples using Field Types API.
+ *
+ * This is updated from Barry Jaspan's presentation at Drupalcon Paris,
+ * @link http://acquia.com/community/resources/acquia-tv/intro-field-api-module-developers Video Presentation @endlink
+ *
+ * Providing a field requires:
+ * - Defining a field:
+ *   - hook_field_info()
+ *   - hook_field_schema()
+ *   - hook_field_validate()
+ *   - hook_field_is_empty()
+ *
+ * - Defining a formatter for the field (the portion that outputs the field for
+ *   display):
+ *   - hook_field_formatter_info()
+ *   - hook_field_formatter_view()
+ *
+ * - Defining a widget for the edit form:
+ *   - hook_field_widget_info()
+ *   - hook_field_widget_form()
+ *
+ * Our module defines the field in pnfield_field_info(),
+ * pnfield_field_validate() and pnfield_field_is_empty().
+ * pnfield_field_schema() is implemented in pnfield.install.
+ *
+ * Our module sets up a formatter in pnfield_field_formatter_info() and
+ * pnfield_field_formatter_view(). These are the API hooks that present
+ * formatted and themed output to the user.
+
+ * And finally, our module defines the widet in
+ * pnfield_field_widget_info() and pnfield_field_widget_form().
+ * The widget is the form element used to receive input from the user
+ * when the field is being populated.
+ *
+ * @see field_types
+ * @see field
+ */
+
+/***************************************************************
+ * Field Type API hooks
+ ***************************************************************/
+
+/**
+ * Implements hook_field_info().
+ *
+ * Provides the description of the field.
+ */
+function pnfield_field_info() {
+  return array(
+    // We name our field as the associative name of the array.
+    'pnfield' => array(
+      'label' => t('Previous Next'),
+      'description' => t('Creates field with a link to the previous or next node in a defined sequence.'),
+      'default_widget' => 'pnfield_prev_next',
+      'default_formatter' => 'prev_next',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_validate().
+ */
+function pnfield_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  foreach ($items as $delta => $item) {
+    // Validation
+  }
+}
+
+function pnfield_field_instance_settings_form($field, $instance) {
+  $settings = $instance['settings'];
+  dpm($settings);
+
+  $form['config'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Configuration'),
+  );
+
+  $form['config']['prev_next'] = array(
+    '#type' => 'select',
+    '#options' => array(
+      'prev' => 'Previous',
+      'next' => 'Next',
+    ),
+    '#title' => t('Type'),
+    '#description' => t('Select whether this link should point to the previous or next node in the sequence.'),
+    '#default_value' => $settings['config']['prev_next'],
+  );
+
+  $form['config']['sort'] = array(
+    '#type' => 'select',
+    '#options' => array(
+      SORT_ALPHA => 'Alphabetically',
+      SORT_CREATED => 'Created',
+      SORT_CHANGED => 'Changed',
+      SORT_NID => 'ID',
+    ),
+    '#title' => t('Sort Criteria'),
+    '#description' => t('Select the criteria on which the nodes will be sorted.'),
+    '#default_value' => $settings['config']['sort'],
+  );
+
+  $form['filters'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Filters'),
+  );
+
+  $form['filters']['status'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Unpublished'),
+    '#description' => t('Check this box to include unpublished nodes in the results.'),
+    '#default_value' => $settings['filters']['status'],
+  );
+
+  $form['filters']['types'] = array(
+    '#type' => 'checkboxes',
+    '#options' => node_type_get_names(),
+    '#title' => t('Node Types'),
+    '#description' => t('Select the Node Types to include in the results. If no Node Types are selected, all will be returned in the sequence.'),
+    '#default_value' => $settings['filters']['types'],
+  );
+
+  $vocabularies = taxonomy_get_vocabularies();
+  $term_list = array();
+  foreach ($vocabularies as $vocab) {
+    $terms = taxonomy_get_tree($vocab->vid);
+    foreach($terms as $term) {
+      $term_list[]= $term->name;
+    }
+  }
+
+  if(count($term_list)) {
+    $form['filters']['terms'] = array(
+      '#type' => 'checkboxes',
+      '#options' => $term_list,
+      '#title' => t('Taxonomy Terms'),
+      '#description' => t('Select the Texonomy Terms to include in the results. If no Terms are selected, all will be returned in the sequence.'),
+      '#default_value' => $settings['filters']['terms'],
+    );
+  }
+
+  return $form;
+}
+
+function pnfield_field_settings_form($field, $instance, $has_data) {
+  // shouldn't need this
+}
+
+/**
+ * Implements hook_field_is_empty().
+ *
+ * hook_field_is_emtpy() is where Drupal asks us if this field is empty.
+ * Return TRUE if it does not contain data, FALSE if it does. This lets
+ * the form API flag an error when required fields are empty.
+ */
+function pnfield_field_is_empty($item, $field) {
+  return empty($item['rgb']);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ *
+ * (Manage Display page)
+ *
+ * @see pnfield_field_formatter_view()
+ */
+function pnfield_field_formatter_info() {
+  return array(
+    // This formatter just displays the hex value in the color indicated.
+    'node_title' => array(
+      'label' => t('Title of the Node'),
+      'field types' => array('pnfield'),
+    ),
+    'prev_next' => array(
+      'label' => t('"Previous" or "Next"'),
+      'field types' => array('pnfield'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ *
+ * Two formatters are implemented.
+ * - pnfield_simple_text just outputs markup indicating the color that
+ *   was entered and uses an inline style to set the text color to that value.
+ * - pnfield_color_background does the same but also changes the
+ *   background color of div.region-content.
+ *
+ * @see pnfield_field_formatter_info()
+ */
+function pnfield_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  dpm($instance);
+  dpm($display);
+
+  // Link text
+  if ($display['type'] == 'prev_next') {
+    $text = ($instance['settings']['config']['prev_next'] == 'next') ? 'Next' : 'Previous';
+  }
+  else {
+    $text = 'Node Title';
+  }
+
+  // Node ID
+  $node = menu_get_object();
+  $pn_nid = pn_nid($node->nid, $instance['settings']['config']['prev_next'], $instance['settings']['config']['sort'], $options = array('types' => FALSE, 'terms' => FALSE, 'unpublished' => FALSE));
+
+  $element = array();
+  $element[] = array(
+    '#type' => 'link',
+    '#title' => $text,
+    '#href' => 'node/' . $pn_nid,
+  );
+  /*
+  switch ($display['type']) {
+    // This formatter simply outputs the field as text and with a color.
+    case 'pnfield_link':
+      foreach ($items as $delta => $item) {
+        dpm($instance);
+        $element[$delta] = array(
+          // We create a render array to produce the desired markup,
+          // "<p style="color: #hexcolor">The color code ... #hexcolor</p>".
+          // See theme_html_tag().
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#attributes' => array(
+            'style' => 'color: ' . $item['rgb'],
+          ),
+          '#value' => t('The color code in this field is @code', array('@code' => $item['rgb'])),
+        );
+      }
+      break;
+  }
+  */
+
+  return $element;
+}
+
+/**
+ * Implements hook_field_widget_info().
+ *
+ * Three widgets are provided.
+ * - A simple text-only widget where the user enters the '#ffffff'.
+ * - A 3-textfield widget that gathers the red, green, and blue values
+ *   separately.
+ * - A farbtastic colorpicker widget that chooses the value graphically.
+ *
+ * These widget types will eventually show up in hook_field_widget_form,
+ * where we will have to flesh them out.
+ *
+ * @see pnfield_field_widget_form()
+ */
+function pnfield_field_widget_info() {
+  return array(
+    'pnfield_prev_next' => array(
+      'label' => t('Previous/Next'),
+      'field types' => array('pnfield'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_form().
+ *
+ * hook_widget_form() is where Drupal tells us to create form elements for
+ * our field's widget.
+ *
+ * We provide one of three different forms, depending on the widget type of
+ * the Form API item provided.
+ *
+ * The 'pnfield_colorpicker' and 'pnfield_text' are essentially
+ * the same, but pnfield_colorpicker adds a javascript colorpicker
+ * helper.
+ *
+ * pnfield_3text displays three text fields, one each for red, green,
+ * and blue. However, the field type defines a single text column,
+ * rgb, which needs an HTML color spec. Define an element validate
+ * handler that converts our r, g, and b fields into a simulated single
+ * 'rgb' form element.
+ */
+function pnfield_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $value = isset($items[$delta]['rgb']) ? $items[$delta]['rgb'] : '';
+
+  $widget = $element;
+  $widget['#delta'] = $delta;
+
+  switch ($instance['widget']['type']) {
+
+    case 'pnfield_prev_next' :
+      $widget += array(
+        '#type' => 'textfield',
+        '#default_value' => '1',
+      );
+
+      break;
+  }
+
+  $element['rgb'] = $widget;
+  return $element;
+}
+
+
+/**
+ * Validate the individual fields and then convert them into a single HTML RGB
+ * value as text.
+ */
+function pnfield_3text_validate($element, &$form_state) {
+  $delta = $element['#delta']; // TODO: Isn't there a better way to find out which element?
+  $field = $form_state['field'][$element['#field_name']][$element['#language']]['field'];
+  $field_name = $field['field_name'];
+  if (isset($form_state['values'][$field_name][$element['#language']][$delta]['rgb'])) {
+    $values = $form_state['values'][$field_name][$element['#language']][$delta]['rgb'];
+    foreach (array('r', 'g', 'b') as $colorfield) {
+      $colorfield_value = hexdec($values[$colorfield]);
+      // If they left any empty, we'll set the value empty and quit.
+      if (strlen($values[$colorfield]) == 0) {
+        form_set_value($element, '', $form_state);
+        return;
+      }
+      // If they gave us anything that's not hex, reject it.
+      if ( (strlen($values[$colorfield]) != 2) || $colorfield_value < 0 || $colorfield_value > 255) {
+        form_error($element[$colorfield], t("Saturation value must be a 2-digit hexadecimal value between 00 and ff."));
+      }
+    }
+
+    $value = sprintf('#%02s%02s%02s', $values['r'], $values['g'], $values['b']);
+    form_set_value($element, $value, $form_state);
+  }
+}
+
+/**
+ * Implements hook_field_widget_error().
+ *
+ * hook_field_widget_error() lets us figure out what to do with errors
+ * we might have generated in hook_field_validate(). Generally, we'll just
+ * call form_error().
+ *
+ * @see pnfield_field_validate()
+ * @see form_error()
+ */
+function pnfield_field_widget_error($element, $error, $form, &$form_state) {
+  switch ($error['error']) {
+    case 'pnfield_invalid':
+      form_error($element, $error['message']);
+      break;
+  }
+}
+
+
+/**
+ * Implements hook_menu().
+ *
+ * Provides a simple user interface that tells the developer where to go.
+ */
+function pnfield_menu() {
+  $items['examples/pnfield'] = array(
+    'title' => 'Field Example',
+    'page callback' => '_pnfield_page',
+    'access callback' => TRUE,
+  );
+  return $items;
+}
+
+/**
+ * A simple page to explain to the developer what to do.
+ */
+function _pnfield_page() {
+  return t("The Field Example provides a field composed of an HTML RGB value, like #ff00ff. To use it, add the field to a content type.");
+}
+/**
+ * @} End of "defgroup pnfield".
+ */

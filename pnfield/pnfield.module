@@ -59,7 +59,7 @@ function pnfield_field_info() {
   return array(
     // We name our field as the associative name of the array.
     'pnfield' => array(
-      'label' => t('Previous Next'),
+      'label' => t('Previous/Next'),
       'description' => t('Creates field with a link to the previous or next node in a defined sequence.'),
       'default_widget' => 'pnfield_prev_next',
       'default_formatter' => 'prev_next',
@@ -78,7 +78,6 @@ function pnfield_field_validate($entity_type, $entity, $field, $instance, $langc
 
 function pnfield_field_instance_settings_form($field, $instance) {
   $settings = $instance['settings'];
-  dpm($settings);
 
   $form['config'] = array(
     '#type' => 'fieldset',
@@ -134,7 +133,7 @@ function pnfield_field_instance_settings_form($field, $instance) {
   foreach ($vocabularies as $vocab) {
     $terms = taxonomy_get_tree($vocab->vid);
     foreach($terms as $term) {
-      $term_list[]= $term->name;
+      $term_list[$term->tid] = $term->name;
     }
   }
 
@@ -163,7 +162,7 @@ function pnfield_field_settings_form($field, $instance, $has_data) {
  * the form API flag an error when required fields are empty.
  */
 function pnfield_field_is_empty($item, $field) {
-  return empty($item['rgb']);
+  return FALSE;
 }
 
 /**
@@ -190,29 +189,32 @@ function pnfield_field_formatter_info() {
 /**
  * Implements hook_field_formatter_view().
  *
- * Two formatters are implemented.
- * - pnfield_simple_text just outputs markup indicating the color that
- *   was entered and uses an inline style to set the text color to that value.
- * - pnfield_color_background does the same but also changes the
- *   background color of div.region-content.
- *
  * @see pnfield_field_formatter_info()
  */
 function pnfield_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
-  dpm($instance);
-  dpm($display);
+  $options = array();
+  foreach ($instance['settings']['filters']['types'] as $type => $value) {
+    if ($value) {
+      $options['types'][] = $type;
+    }
+  }
+  foreach ($instance['settings']['filters']['terms'] as $term => $value) {
+    if ($value) {
+      $options['terms'][] = $term;
+    }
+  }
 
-  // Link text
+  $options['unpublished'] = $instance['settings']['filters']['status'];
+
+  $node = menu_get_object();
+  $pn_nid = pn_nid($node->nid, $instance['settings']['config']['prev_next'], $instance['settings']['config']['sort'], $options);
+
   if ($display['type'] == 'prev_next') {
     $text = ($instance['settings']['config']['prev_next'] == 'next') ? 'Next' : 'Previous';
   }
   else {
-    $text = 'Node Title';
+    $text = pnfield_nid2title($pn_nid);
   }
-
-  // Node ID
-  $node = menu_get_object();
-  $pn_nid = pn_nid($node->nid, $instance['settings']['config']['prev_next'], $instance['settings']['config']['sort'], $options = array('types' => FALSE, 'terms' => FALSE, 'unpublished' => FALSE));
 
   $element = array();
   $element[] = array(
@@ -220,27 +222,6 @@ function pnfield_field_formatter_view($entity_type, $entity, $field, $instance, 
     '#title' => $text,
     '#href' => 'node/' . $pn_nid,
   );
-  /*
-  switch ($display['type']) {
-    // This formatter simply outputs the field as text and with a color.
-    case 'pnfield_link':
-      foreach ($items as $delta => $item) {
-        dpm($instance);
-        $element[$delta] = array(
-          // We create a render array to produce the desired markup,
-          // "<p style="color: #hexcolor">The color code ... #hexcolor</p>".
-          // See theme_html_tag().
-          '#type' => 'html_tag',
-          '#tag' => 'p',
-          '#attributes' => array(
-            'style' => 'color: ' . $item['rgb'],
-          ),
-          '#value' => t('The color code in this field is @code', array('@code' => $item['rgb'])),
-        );
-      }
-      break;
-  }
-  */
 
   return $element;
 }
@@ -293,16 +274,8 @@ function pnfield_field_widget_form(&$form, &$form_state, $field, $instance, $lan
   $widget = $element;
   $widget['#delta'] = $delta;
 
-  switch ($instance['widget']['type']) {
-
-    case 'pnfield_prev_next' :
-      $widget += array(
-        '#type' => 'textfield',
-        '#default_value' => '1',
-      );
-
-      break;
-  }
+  $widget['#type'] = 'hidden';
+  $widget['#default_value'] = '1';
 
   $element['rgb'] = $widget;
   return $element;
@@ -313,6 +286,7 @@ function pnfield_field_widget_form(&$form, &$form_state, $field, $instance, $lan
  * Validate the individual fields and then convert them into a single HTML RGB
  * value as text.
  */
+/*
 function pnfield_3text_validate($element, &$form_state) {
   $delta = $element['#delta']; // TODO: Isn't there a better way to find out which element?
   $field = $form_state['field'][$element['#field_name']][$element['#language']]['field'];
@@ -336,6 +310,7 @@ function pnfield_3text_validate($element, &$form_state) {
     form_set_value($element, $value, $form_state);
   }
 }
+ */
 
 /**
  * Implements hook_field_widget_error().
@@ -355,27 +330,6 @@ function pnfield_field_widget_error($element, $error, $form, &$form_state) {
   }
 }
 
-
-/**
- * Implements hook_menu().
- *
- * Provides a simple user interface that tells the developer where to go.
- */
-function pnfield_menu() {
-  $items['examples/pnfield'] = array(
-    'title' => 'Field Example',
-    'page callback' => '_pnfield_page',
-    'access callback' => TRUE,
-  );
-  return $items;
+function pnfield_nid2title($nid) {
+  return db_query("SELECT title FROM {node} WHERE nid = :nid", array(':nid' => $nid))->fetchField();
 }
-
-/**
- * A simple page to explain to the developer what to do.
- */
-function _pnfield_page() {
-  return t("The Field Example provides a field composed of an HTML RGB value, like #ff00ff. To use it, add the field to a content type.");
-}
-/**
- * @} End of "defgroup pnfield".
- */
